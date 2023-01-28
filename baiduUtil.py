@@ -4,6 +4,7 @@ from driveInterface import *
 import urllib3
 import re
 import json
+from retrying import retry
 
 BAIDU_API_BASE = "https://pan.baidu.com/api/"
 
@@ -22,6 +23,17 @@ REQUEST_HEADER = {
 }
 
 
+class RetryLater(driveError):
+    code: int
+    message: str
+    data: dict
+
+    def __init__(self):
+        self.code = 111
+        self.message = "Retry Later."
+        self.data = {}
+
+
 class Pan(driveInterface):
     session: requests.Session
     request_header: dict
@@ -32,7 +44,7 @@ class Pan(driveInterface):
         self.session = requests.session()
         self.session.trust_env = False
         self.base_path = base_path
-        self.drive_type = "baidupan"
+        self.drive_type = "baidunetdisk"
         self.request_header = REQUEST_HEADER
         self.request_header["Cookie"] = cookies
         self.bdstoken = ""
@@ -44,7 +56,7 @@ class Pan(driveInterface):
             "md5": item["md5"] if "md5" in item else "",
             "size": item["size"] if "size" in item else "",
             "md5_s": "",
-            "drive_type": "baidupan",
+            "drive_type": "baidunetdisk",
         }
         if "path" in kwargs:
             path = self.base_path + kwargs["path"]
@@ -193,6 +205,11 @@ class Pan(driveInterface):
             res_list.extend(self.search_file(dir=dir, key=key, page=page + 1))
         return res_list
 
+    @retry(
+        wait_fixed=1000,
+        stop_max_attempt_number=3,
+        retry_on_exception=lambda e: e.code == 111,
+    )
     def file_manager(self, opera: str, filelist) -> None:
         url = BAIDU_API_BASE + "filemanager"
         payload = {
@@ -234,12 +251,20 @@ class Pan(driveInterface):
                             )
                         },
                     )
+                elif res["info"][i]["errno"] == 111:
+                    raise RetryLater()
                 else:
                     raise driveError(
-                        res["errno"], res["errmsg"] if "errmsg" in res else ""
+                        res["errno"],
+                        res["errmsg"] if "errmsg" in res else "",
+                        data={"res": res},
                     )
         elif res["errno"] != 0:
-            raise driveError(res["errno"], res["errmsg"] if "errmsg" in res else "")
+            raise driveError(
+                res["errno"],
+                res["errmsg"] if "errmsg" in res else "",
+                data={"res": res},
+            )
 
     # 实现driveInterface接口方法
     def list_dir(self, path: pathType) -> list[itemType]:
@@ -268,7 +293,7 @@ class Pan(driveInterface):
             )
             return []
         sys.stdout.write(
-            "baiduUtil : Search files in Baidu Netdisk will ignore wildcards and return files and folders with specific name.\n"
+            "baiduUtil : Search files in Baidu Netdisk will ignore wildcards and return items with specific name.\n"
         )
         dir_list = []
         res_list = []

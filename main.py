@@ -33,7 +33,7 @@ class LibraryShell(cmd2.Cmd):
             self.drives.add_drive(
                 DB(pathType.path_from_str(drive["path"]), *drive["args"])
             )
-        elif drive["type"] == "baidupan":
+        elif drive["type"] == "baidunetdisk":
             self.drives.add_drive(
                 Pan(pathType.path_from_str(drive["path"]), *drive["args"])
             )
@@ -204,7 +204,7 @@ class LibraryShell(cmd2.Cmd):
             if e.code == 601:
                 if e.data["drives"][0].drive_type == "database":
                     self.drives.move_item(src_path, dst_path, cross_drive=True)
-                elif e.data["drives"][0].drive_type == "baidupan":
+                elif e.data["drives"][0].drive_type == "baidunetdisk":
                     self.perror(
                         "mv : Can not move items from BaiduNetDisk to other drive."
                     )
@@ -246,6 +246,50 @@ class LibraryShell(cmd2.Cmd):
         for path in args.path:
             path = self.now_path + pathType.path_from_str(path)
             self.drives.add_item(path, 1)
+
+    clean_parser = cmd2.Cmd2ArgumentParser()
+    clean_parser.add_argument("path", nargs="+", help="Path")
+    clean_parser.add_argument(
+        "-t",
+        "-test",
+        "--test",
+        action="store_true",
+        help="List files only, do not delete",
+    )
+
+    @cmd2.with_argparser(clean_parser)
+    def do_clean(self, args):
+        """If a folder is in the same directory as the compressed file with the same name, the folder will be deleted"""
+        search_path_list = []
+        path_list = []
+        for path in args.path:
+            search_path_list.append(self.now_path + pathType.path_from_str(path))
+        for ext in ["*.7z", "*.zip"]:
+            items = self.drives.search_items(path=search_path_list, name=ext)
+            for item in items:
+                if item.path.dirname not in path_list:
+                    path_list.append(item.path.dirname)
+        res_list = []
+        for path in path_list:
+            name_list = []
+            items = self.drives.list_dir(path)
+            for item in items:
+                if item.type == 0:
+                    ext = os.path.splitext(item.name)[-1]
+                    name = os.path.splitext(item.name)[0]
+                    if name in name_list:
+                        res_list.append(item.path.dirname + pathType([name], False))
+                    else:
+                        name_list.append(name)
+                else:
+                    if item.name in name_list:
+                        res_list.append(item.path)
+                    else:
+                        name_list.append(item.name)
+        for path in res_list:
+            self.poutput(path)
+            if not args.test:
+                self.drives.remove_item(path, recursive=True, force=True)
 
     add_parser = cmd2.Cmd2ArgumentParser()
     add_parser.add_argument("link", help="Rapid-upload link", nargs="+")
@@ -295,11 +339,9 @@ class LibraryShell(cmd2.Cmd):
     driveadd_parser = cmd2.Cmd2ArgumentParser()
     driveadd_parser.add_argument("path", help="Base path")
     driveadd_parser.add_argument(
-        "-t",
-        "-type",
-        "--type",
+        "type",
         help="Drive type",
-        choices=["baidupan", "database"],
+        choices=["baidunetdisk", "database"],
     )
     driveadd_parser.add_argument(
         "drive_args",

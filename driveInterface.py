@@ -48,7 +48,7 @@ class driveInterface:
             return res_list
         else:
             for item in self.list_dir(path.dirname):
-                if fnmatch(item.name, path.basename):
+                if item.name == path.basename or fnmatch(item.name, path.basename):
                     res_list.append(item.path)
             return res_list
 
